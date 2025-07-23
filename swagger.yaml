@@ -1,0 +1,346 @@
+openapi: 3.0.0
+info:
+  title: Hubot Knowledge Base API
+  description: API for managing knowledge base content through text and file uploads
+  version: 1.0.0
+  contact:
+    name: Hubot API Support
+    email: support@hubot.com
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+
+paths:
+  /Hubot/kb:
+    post:
+      summary: Set knowledge base with string content
+      description: Replace the entire knowledge base with new string content
+      tags:
+        - Knowledge Base
+      requestBody:
+        required: true
+        content:
+          text/plain:
+            schema:
+              type: string
+            example: "This is my knowledge base content. It contains important information about our products and services."
+      responses:
+        '200':
+          description: Knowledge base updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Knowledge base updated successfully"
+                  status:
+                    type: string
+                    example: "success"
+        '400':
+          description: Bad request - invalid input
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Request body must be a string"
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Failed to update knowledge base"
+
+  /Hubot/kb-upload:
+    post:
+      summary: Upload text file to set knowledge base
+      description: Upload a .txt file and replace the entire knowledge base with its content
+      tags:
+        - Knowledge Base
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Text file (.txt extension only)
+      responses:
+        '200':
+          description: Knowledge base updated from file successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Knowledge base updated from file successfully"
+                  status:
+                    type: string
+                    example: "success"
+        '400':
+          description: Bad request - no file uploaded or invalid file type
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "No file uploaded"
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Failed to process uploaded file"
+
+  /Hubot/add-kb:
+    post:
+      summary: Append string content to knowledge base
+      description: Add new string content to the existing knowledge base as a new line
+      tags:
+        - Knowledge Base
+      requestBody:
+        required: true
+        content:
+          text/plain:
+            schema:
+              type: string
+            example: "Additional information to append to the knowledge base."
+      responses:
+        '200':
+          description: Content added to knowledge base successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Content added to knowledge base successfully"
+                  status:
+                    type: string
+                    example: "success"
+        '400':
+          description: Bad request - invalid input
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Request body must be a string"
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Failed to add content to knowledge base"
+
+  /Hubot/add-kb-upload:
+    post:
+      summary: Upload text file to append to knowledge base
+      description: Upload a .txt file and append its content to the existing knowledge base
+      tags:
+        - Knowledge Base
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Text file (.txt extension only)
+      responses:
+        '200':
+          description: File content added to knowledge base successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "File content added to knowledge base successfully"
+                  status:
+                    type: string
+                    example: "success"
+        '400':
+          description: Bad request - no file uploaded or invalid file type
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "No file uploaded"
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Failed to process uploaded file"
+
+  /Hubot/show-kb:
+    get:
+      summary: Retrieve current knowledge base
+      description: Get the current content of the knowledge base
+      tags:
+        - Knowledge Base
+      responses:
+        '200':
+          description: Knowledge base retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  knowledgeBase:
+                    type: string
+                    example: "This is my knowledge base content. It contains important information about our products and services."
+                  status:
+                    type: string
+                    example: "success"
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Failed to retrieve knowledge base"
+
+  /Hubot/message:
+    post:
+      summary: Send message to Hubot
+      description: Send a message to the Hubot and receive a response
+      tags:
+        - Chat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+                  example: "Hello, how can you help me?"
+      responses:
+        '200':
+          description: Message received successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Handa Uncle Bot has received your query - We will be live soon"
+
+components:
+  schemas:
+    SuccessResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        status:
+          type: string
+          enum: [success]
+    
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+
+    KnowledgeBaseResponse:
+      type: object
+      properties:
+        knowledgeBase:
+          type: string
+        status:
+          type: string
+          enum: [success]
+
+tags:
+  - name: Knowledge Base
+    description: Operations for managing the knowledge base content
+  - name: Chat
+    description: Chat operations with Hubot
+
+# Postman Testing Instructions:
+# 
+# 1. /Hubot/kb (POST):
+#    - URL: http://localhost:8080/Hubot/kb
+#    - Method: POST
+#    - Headers: Content-Type: text/plain
+#    - Body: Select "raw" and choose "Text" from dropdown
+#    - Enter your text directly: "This is my knowledge base content"
+#
+# 2. /Hubot/kb-upload (POST):
+#    - URL: http://localhost:8080/Hubot/kb-upload
+#    - Method: POST
+#    - Body: Select "form-data"
+#    - Key: "file" (select "File" from dropdown)
+#    - Value: Select your .txt file
+#
+# 3. /Hubot/add-kb (POST):
+#    - URL: http://localhost:8080/Hubot/add-kb
+#    - Method: POST
+#    - Headers: Content-Type: text/plain
+#    - Body: Select "raw" and choose "Text" from dropdown
+#    - Enter your text: "Additional content to append"
+#
+# 4. /Hubot/add-kb-upload (POST):
+#    - URL: http://localhost:8080/Hubot/add-kb-upload
+#    - Method: POST
+#    - Body: Select "form-data"
+#    - Key: "file" (select "File" from dropdown)
+#    - Value: Select your .txt file
+#
+# 5. /Hubot/show-kb (GET):
+#    - URL: http://localhost:8080/Hubot/show-kb
+#    - Method: GET
+#    - No body required
+#
+# 6. /Hubot/message (POST):
+#    - URL: http://localhost:8080/Hubot/message
+#    - Method: POST
+#    - Headers: Content-Type: application/json
+#    - Body: Select "raw" and choose "JSON" from dropdown
+#    - Enter JSON: {"message": "Hello Hubot"}
