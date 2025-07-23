@@ -14,7 +14,7 @@ servers:
     description: Local development server
 
 paths:
-  /Hubot/kb:
+  /hubot/kb:
     post:
       summary: Set knowledge base with string content
       description: Replace the entire knowledge base with new string content
@@ -62,7 +62,7 @@ paths:
                     type: string
                     example: "Failed to update knowledge base"
 
-  /Hubot/kb-upload:
+  /hubot/kb-upload:
     post:
       summary: Upload text file to set knowledge base
       description: Upload a .txt file and replace the entire knowledge base with its content
@@ -114,7 +114,7 @@ paths:
                     type: string
                     example: "Failed to process uploaded file"
 
-  /Hubot/add-kb:
+  /hubot/add-kb:
     post:
       summary: Append string content to knowledge base
       description: Add new string content to the existing knowledge base as a new line
@@ -162,7 +162,7 @@ paths:
                     type: string
                     example: "Failed to add content to knowledge base"
 
-  /Hubot/add-kb-upload:
+  /hubot/add-kb-upload:
     post:
       summary: Upload text file to append to knowledge base
       description: Upload a .txt file and append its content to the existing knowledge base
@@ -214,7 +214,7 @@ paths:
                     type: string
                     example: "Failed to process uploaded file"
 
-  /Hubot/show-kb:
+  /hubot/show-kb:
     get:
       summary: Retrieve current knowledge base
       description: Get the current content of the knowledge base
@@ -245,7 +245,7 @@ paths:
                     type: string
                     example: "Failed to retrieve knowledge base"
 
-  /Hubot/message:
+  /hubot/message:
     post:
       summary: Send message to Hubot
       description: Send a message to the Hubot and receive a response

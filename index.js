@@ -62,7 +62,7 @@ app.get('/', (req, res) => {
 });
 
 // Set knowledge base with string
-app.post('/Hubot/kb', express.text({ type: 'text/plain' }), (req, res) => {
+app.post('/hubot/kb', express.text({ type: 'text/plain' }), (req, res) => {
   try {
     if (!req.body || typeof req.body !== 'string') {
       return res.status(400).json({ error: 'Request body must be a string' });
@@ -79,7 +79,7 @@ app.post('/Hubot/kb', express.text({ type: 'text/plain' }), (req, res) => {
 });
 
 // Upload text file and set as knowledge base
-app.post('/Hubot/kb-upload', upload.single('file'), (req, res) => {
+app.post('/hubot/kb-upload', upload.single('file'), (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
@@ -103,7 +103,7 @@ app.post('/Hubot/kb-upload', upload.single('file'), (req, res) => {
 });
 
 // Append string to existing knowledge base
-app.post('/Hubot/add-kb', express.text({ type: 'text/plain' }), (req, res) => {
+app.post('/hubot/add-kb', express.text({ type: 'text/plain' }), (req, res) => {
   try {
     if (!req.body || typeof req.body !== 'string') {
       return res.status(400).json({ error: 'Request body must be a string' });
@@ -125,7 +125,7 @@ app.post('/Hubot/add-kb', express.text({ type: 'text/plain' }), (req, res) => {
 });
 
 // Upload text file and append to existing knowledge base
-app.post('/Hubot/add-kb-upload', upload.single('file'), (req, res) => {
+app.post('/hubot/add-kb-upload', upload.single('file'), (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
@@ -153,7 +153,7 @@ app.post('/Hubot/add-kb-upload', upload.single('file'), (req, res) => {
 });
 
 // Show current knowledge base
-app.get('/Hubot/show-kb', (req, res) => {
+app.get('/hubot/show-kb', (req, res) => {
   try {
     res.json({
       knowledgeBase: knowledgeBase,
@@ -168,7 +168,7 @@ app.get('/Hubot/show-kb', (req, res) => {
 app.use(express.json());
 
 // Original message route
-app.post('/Hubot/message', (req, res) => {
+app.post('/hubot/message', (req, res) => {
   res.json({
     message: "Handa Uncle Bot has received your query - We will be live soon"
   });
