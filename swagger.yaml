@@ -8,6 +8,8 @@ info:
     email: support@hubot.com
 
 servers:
+  - url: https://api-chatbot-237461081241.asia-south2.run.app
+    description: Production server
   - url: http://localhost:8080
     description: Local development server
 
