@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
@@ -5,8 +6,15 @@ const fs = require('fs');
 const path = require('path');
 const swaggerUi = require('swagger-ui-express');
 const YAML = require('yamljs');
+const fetch = require('node-fetch'); // make sure to install node-fetch for Node.js < 18
 const app = express();
 const PORT = process.env.PORT || 8080;
+
+// Validate that API key is loaded
+// if (!process.env.ANTHROPIC_API_KEY) {
+//   console.error('❌ ANTHROPIC_API_KEY not found in environment variables');
+//   process.exit(1);
+// }
 
 // Load Swagger document
 const swaggerDocument = YAML.load('./swagger.yaml');
@@ -27,8 +35,7 @@ const storage = multer.diskStorage({
     cb(null, Date.now() + '-' + file.originalname);
   }
 });
-
-const upload = multer({ 
+const upload = multer({
   storage: storage,
   fileFilter: (req, file, cb) => {
     if (path.extname(file.originalname).toLowerCase() === '.txt') {
@@ -52,7 +59,7 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument, {
   customSiteTitle: "Hubot API Documentation",
   customfavIcon: "/assets/favicon.ico",
   swaggerOptions: {
-    persistAuthorization: true,
+    persistAuthorization: true
   }
 }));
 
@@ -67,7 +74,6 @@ app.post('/hubot/kb', express.text({ type: 'text/plain' }), (req, res) => {
     if (!req.body || typeof req.body !== 'string') {
       return res.status(400).json({ error: 'Request body must be a string' });
     }
-    
     knowledgeBase = req.body;
     res.json({
       message: 'Knowledge base updated successfully',
@@ -84,15 +90,10 @@ app.post('/hubot/kb-upload', upload.single('file'), (req, res) => {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
     }
-
     const filePath = req.file.path;
     const fileContent = fs.readFileSync(filePath, 'utf8');
-    
     knowledgeBase = fileContent;
-    
-    // Clean up uploaded file
     fs.unlinkSync(filePath);
-    
     res.json({
       message: 'Knowledge base updated from file successfully',
       status: 'success'
@@ -108,13 +109,11 @@ app.post('/hubot/add-kb', express.text({ type: 'text/plain' }), (req, res) => {
     if (!req.body || typeof req.body !== 'string') {
       return res.status(400).json({ error: 'Request body must be a string' });
     }
-    
     if (knowledgeBase) {
       knowledgeBase += '\n' + req.body;
     } else {
       knowledgeBase = req.body;
     }
-    
     res.json({
       message: 'Content added to knowledge base successfully',
       status: 'success'
@@ -130,19 +129,14 @@ app.post('/hubot/add-kb-upload', upload.single('file'), (req, res) => {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
     }
-
     const filePath = req.file.path;
     const fileContent = fs.readFileSync(filePath, 'utf8');
-    
     if (knowledgeBase) {
       knowledgeBase += '\n' + fileContent;
     } else {
       knowledgeBase = fileContent;
     }
-    
-    // Clean up uploaded file
     fs.unlinkSync(filePath);
-    
     res.json({
       message: 'File content added to knowledge base successfully',
       status: 'success'
@@ -167,11 +161,52 @@ app.get('/hubot/show-kb', (req, res) => {
 // Default JSON middleware for routes that need it
 app.use(express.json());
 
-// Original message route
-app.post('/hubot/message', (req, res) => {
-  res.json({
-    message: "Handa Uncle Bot has received your query - We will be live soon"
-  });
+// Claude API call abstraction
+async function callClaudeAPI(message, context) {
+  try {
+    const userInput = context ? `${message}\n\nKnowledge Base:\n${context}` : message;
+    const jsonBody = JSON.stringify({
+      model: "claude-3-5-sonnet-20241022",
+      max_tokens: 8192,
+      messages: [{
+        role: "user",
+        content: userInput
+      }]
+    });
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json'
+      },
+      body: jsonBody
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const responseData = await response.json();
+    return responseData?.content?.[0]?.text || '';
+  } catch (error) {
+    throw error;
+  }
+}
+
+// Updated /hubot/message endpoint using Claude API and current knowledge base
+app.post('/hubot/message', async (req, res) => {
+  try {
+    const userMsg = typeof req.body === 'string' ? req.body : req.body.message;
+    if (!userMsg) {
+      return res.status(400).json({ error: 'Missing message in request body' });
+    }
+    const cleanedMsg = userMsg.replace(/[\n\r\t]/g, ' ');
+    const kb = knowledgeBase || '';
+    const claudeResponse = await callClaudeAPI(cleanedMsg, kb);
+    res.status(200).json({ reply: claudeResponse });
+  } catch (error) {
+    console.error('Error in /hubot/message:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Server Start
