@@ -10,6 +10,7 @@ const fetch = require('node-fetch'); // make sure to install node-fetch for Node
 
 const { initializeApp } = require('firebase/app');
 const { getDatabase, ref, get, set } = require('firebase/database');
+const admin = require('firebase-admin');
 const app = express();
 const PORT = process.env.PORT || 8080;
 
@@ -17,8 +18,11 @@ const PORT = process.env.PORT || 8080;
 if (!process.env.ANTHROPIC_API_KEY) {
   console.error('❌ ANTHROPIC_API_KEY not found in environment variables');
   process.exit(1);
-} else {
-  console.log('✅ ANTHROPIC_API_KEY loaded successfully');
+}
+
+// Check Firebase Admin credentials
+if (!process.env.FIREBASE_CLIENT_EMAIL || !process.env.FIREBASE_PRIVATE_KEY) {
+  console.warn('⚠️  Firebase Admin credentials not found - token verification will be disabled');
 }
 
 // Firebase configuration
@@ -34,6 +38,28 @@ const firebaseConfig = {
 
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getDatabase(firebaseApp);
+
+// Initialize Firebase Admin SDK for token verification (optional)
+let adminInitialized = false;
+try {
+  if (process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
+    admin.initializeApp({
+      credential: admin.credential.cert({
+        projectId: process.env.FIREBASE_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+        privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+      }),
+      databaseURL: process.env.FIREBASE_DB_URL
+    });
+    adminInitialized = true;
+    console.log('✅ Firebase Admin SDK initialized');
+  } else {
+    console.log('⚠️  Firebase Admin SDK skipped - credentials not found');
+  }
+} catch (error) {
+  console.error('❌ Firebase Admin SDK initialization failed:', error.message);
+  console.log('⚠️  Continuing without token verification...');
+}
 
 // Load Swagger document
 const swaggerDocument = YAML.load('./swagger.yaml');
@@ -227,6 +253,40 @@ Use annotations like:
 - Empathize with confused/stressed users  
 - Wrap up after 6–8 messages or on request with a PDF summary`;
 
+// Firebase token verification middleware
+async function verifyFirebaseToken(req, res, next) {
+  const authHeader = req.headers.authorization;
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
+
+  if (!token) {
+    // User not logged in - use "unknown"
+    req.userEmail = null;
+    req.userId = null;
+    return next();
+  }
+
+  // If Admin SDK is not initialized, skip token verification
+  if (!adminInitialized) {
+    req.userEmail = null;
+    req.userId = null;
+    return next();
+  }
+
+  try {
+    // Verify Firebase token
+    const decodedToken = await admin.auth().verifyIdToken(token);
+    req.userEmail = decodedToken.email;
+    req.userId = decodedToken.uid;
+    next();
+  } catch (error) {
+    console.error('Token verification failed:', error.message);
+    return res.status(401).json({
+      error: 'Invalid or expired token',
+      code: 'TOKEN_INVALID'
+    });
+  }
+}
+
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -283,12 +343,109 @@ app.get('/health', (req, res) => {
     endpoints: [
       'POST /hubot/message',
       'POST /hubot/system',
-      'POST /save-query',
-      'GET /get-queries',
-      'GET /get-queries/:email',
+      'GET /hubot/show-system',
+      'POST /hubot/kb',
+      'POST /hubot/kb-upload',
+      'POST /hubot/add-kb',
+      'POST /hubot/add-kb-upload',
+      'GET /hubot/show-kb',
+      'GET /get-conversation/:email',
+      'GET /get-conversation',
       'GET /get-all-users'
     ]
   });
+});
+
+// Legacy endpoint handlers to prevent frontend errors
+app.post('/save-query', (req, res) => {
+  res.status(410).json({
+    error: 'This endpoint has been deprecated. Please use POST /hubot/message instead.',
+    newEndpoint: '/hubot/message',
+    code: 'ENDPOINT_DEPRECATED'
+  });
+});
+
+app.get('/get-queries', (req, res) => {
+  res.status(410).json({
+    error: 'This endpoint has been deprecated. Please use GET /get-conversation instead.',
+    newEndpoint: '/get-conversation',
+    code: 'ENDPOINT_DEPRECATED'
+  });
+});
+
+app.get('/get-queries/:email', (req, res) => {
+  res.status(410).json({
+    error: 'This endpoint has been deprecated. Please use GET /get-conversation/:email instead.',
+    newEndpoint: `/get-conversation/${req.params.email}`,
+    code: 'ENDPOINT_DEPRECATED'
+  });
+});
+
+// Database cleanup endpoint - removes old format entries
+app.post('/admin/cleanup-database', verifyFirebaseToken, async (req, res) => {
+  try {
+    // Require admin authentication
+    if (!req.userEmail) {
+      return res.status(401).json({ 
+        error: 'Authentication required for database cleanup.',
+        code: 'AUTH_REQUIRED'
+      });
+    }
+    
+    const dbRef = ref(db, 'user_queries');
+    const snapshot = await get(dbRef);
+
+    if (!snapshot.exists()) {
+      return res.status(200).json({ 
+        message: 'No data found to cleanup',
+        status: 'success' 
+      });
+    }
+
+    const allData = snapshot.val();
+    let totalCleaned = 0;
+    let totalUsers = 0;
+
+    for (const userKey of Object.keys(allData)) {
+      const conversation = allData[userKey];
+      
+      if (!Array.isArray(conversation)) continue;
+      
+      totalUsers++;
+      const originalLength = conversation.length;
+      
+      // Filter out old format entries (with 'query' field)
+      const cleanedConversation = conversation.filter(entry => {
+        // Keep only entries with the new format (role + content)
+        if (entry.role && entry.content) {
+          return true;
+        }
+        // Remove old format entries (with query field)
+        if (entry.query) {
+          totalCleaned++;
+          return false;
+        }
+        return true;
+      });
+
+      // Update user's conversation if changes were made
+      if (cleanedConversation.length !== originalLength) {
+        const userDbRef = ref(db, 'user_queries/' + userKey);
+        await set(userDbRef, cleanedConversation);
+      }
+    }
+
+    res.status(200).json({
+      message: 'Database cleanup completed successfully',
+      status: 'success',
+      totalUsers,
+      totalEntriesCleaned: totalCleaned
+    });
+
+  } catch (error) {
+    console.error('Database cleanup failed:', error);
+    res.status(500).json({ error: 'Database cleanup failed' });
+  }
 });
 
 // Set knowledge base with string
@@ -383,90 +540,72 @@ app.get('/hubot/show-kb', (req, res) => {
 
 // JSON middleware already configured above
 
-// Firebase query saving endpoint
-app.post('/save-query', async (req, res) => {
-  try {
-    const { email, query } = req.body;
 
-    if (!query) {
-      return res.status(400).json({ error: "Query is required" });
+
+// Get user conversation endpoint - with email
+app.get('/get-conversation/:email', verifyFirebaseToken, async (req, res) => {
+  try {
+    const requestedEmail = req.params.email;
+    const userEmail = req.userEmail;
+    
+    // Users can only access their own conversations unless no token provided
+    if (userEmail && userEmail !== requestedEmail) {
+      return res.status(403).json({ 
+        error: 'Access denied. You can only access your own conversations.',
+        code: 'ACCESS_DENIED'
+      });
     }
-
-    // Use email if provided, otherwise use "unknown"
-    const userKey = email ? email.replace(/\./g, "_") : "unknown";
+    
+    const userKey = requestedEmail.replace(/\./g, "_");
     const dbRef = ref(db, 'user_queries/' + userKey);
 
-    // Get existing queries for this user
     const snapshot = await get(dbRef);
-    const queries = snapshot.exists() ? snapshot.val() : [];
-
-    // Add new query to the list
-    queries.push({
-      query: query,
-      timestamp: new Date().toISOString()
-    });
-
-    // Save back to Firebase
-    await set(dbRef, queries);
+    const conversation = snapshot.exists() ? snapshot.val() : [];
 
     res.status(200).json({
-      message: "Query saved successfully",
       userKey: userKey,
-      totalQueries: queries.length
+      conversation: conversation,
+      totalMessages: conversation.length
     });
 
   } catch (err) {
-    console.error("Error saving query:", err);
+    console.error("Error getting conversation:", err);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
-// Get user queries endpoint - with email
-app.get('/get-queries/:email', async (req, res) => {
-  try {
-    const email = req.params.email;
-    const userKey = email.replace(/\./g, "_");
-    const dbRef = ref(db, 'user_queries/' + userKey);
-
-    const snapshot = await get(dbRef);
-    const queries = snapshot.exists() ? snapshot.val() : [];
-
-    res.status(200).json({
-      userKey: userKey,
-      queries: queries,
-      totalQueries: queries.length
-    });
-
-  } catch (err) {
-    console.error("Error getting queries:", err);
-    res.status(500).json({ error: "Internal Server Error" });
-  }
-});
-
-// Get user queries endpoint - for unknown users
-app.get('/get-queries', async (req, res) => {
+// Get user conversation endpoint - for unknown users
+app.get('/get-conversation', async (req, res) => {
   try {
     const userKey = "unknown";
     const dbRef = ref(db, 'user_queries/' + userKey);
 
     const snapshot = await get(dbRef);
-    const queries = snapshot.exists() ? snapshot.val() : [];
+    const conversation = snapshot.exists() ? snapshot.val() : [];
 
     res.status(200).json({
       userKey: userKey,
-      queries: queries,
-      totalQueries: queries.length
+      conversation: conversation,
+      totalMessages: conversation.length
     });
 
   } catch (err) {
-    console.error("Error getting queries:", err);
+    console.error("Error getting conversation:", err);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
-// Get all users and their query counts
-app.get('/get-all-users', async (req, res) => {
+// Get all users and their conversation counts
+app.get('/get-all-users', verifyFirebaseToken, async (req, res) => {
   try {
+    // Require a valid token for this admin-like endpoint
+    if (!req.userEmail) {
+      return res.status(401).json({ 
+        error: 'Authentication required to access user data.',
+        code: 'AUTH_REQUIRED'
+      });
+    }
+
     const dbRef = ref(db, 'user_queries');
     const snapshot = await get(dbRef);
 
@@ -478,11 +617,15 @@ app.get('/get-all-users', async (req, res) => {
     const userSummary = {};
 
     Object.keys(allData).forEach(userKey => {
-      const queries = allData[userKey];
+      const conversation = allData[userKey];
+      const userMessages = Array.isArray(conversation) ?
+        conversation.filter(msg => msg.role === 'user') : [];
+
       userSummary[userKey] = {
-        queryCount: Array.isArray(queries) ? queries.length : 0,
-        lastQuery: Array.isArray(queries) && queries.length > 0 ?
-          queries[queries.length - 1].timestamp : null
+        messageCount: Array.isArray(conversation) ? conversation.length : 0,
+        userMessageCount: userMessages.length,
+        lastMessage: Array.isArray(conversation) && conversation.length > 0 ?
+          conversation[conversation.length - 1].timestamp : null
       };
     });
 
@@ -500,10 +643,6 @@ app.get('/get-all-users', async (req, res) => {
 // Claude API call abstraction
 async function callClaudeAPI(message, context, systemPrompt = null) {
   try {
-    console.log('Claude API - Input message:', message);
-    console.log('Claude API - Context length:', context ? context.length : 0);
-    console.log('Claude API - System prompt:', systemPrompt ? 'Provided' : 'None');
-
     const userInput = context ? `${message}\n\nKnowledge Base:\n${context}` : message;
 
     // Build the request body
@@ -523,7 +662,6 @@ async function callClaudeAPI(message, context, systemPrompt = null) {
 
     const jsonBody = JSON.stringify(requestBody);
 
-    console.log('Claude API - Making request to Anthropic...');
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -534,73 +672,107 @@ async function callClaudeAPI(message, context, systemPrompt = null) {
       body: jsonBody
     });
 
-    console.log('Claude API - Response status:', response.status);
-
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('Claude API - Error response:', errorText);
       throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
     }
 
     const responseData = await response.json();
-    console.log('Claude API - Response received, content length:', responseData?.content?.[0]?.text?.length || 0);
-
     return responseData?.content?.[0]?.text || 'No response from Claude API';
   } catch (error) {
-    console.error('Claude API - Error:', error);
     throw error;
   }
 }
 
 // Updated /hubot/message endpoint using Claude API and current knowledge base
-app.post('/hubot/message', async (req, res) => {
+app.post('/hubot/message', verifyFirebaseToken, async (req, res) => {
   try {
-    console.log('Received request body:', req.body);
-    console.log('API Key exists:', !!process.env.ANTHROPIC_API_KEY);
-
-    let userMsg;
-    let userEmail = null;
-
-    // Handle different request body formats
-    if (typeof req.body === 'string') {
-      userMsg = req.body;
-    } else if (req.body && typeof req.body === 'object') {
-      userMsg = req.body.message;
-      userEmail = req.body.email || null;
-    } else {
-      return res.status(400).json({ error: 'Invalid request body format' });
-    }
+    const userMsg = req.body.message;
+    // Use verified email from token instead of body email
+    const userEmail = req.userEmail || null;
 
     if (!userMsg) {
       return res.status(400).json({ error: 'Missing message in request body' });
     }
 
-    console.log('Processing message:', userMsg);
+    // Create unique request ID based on message content and user (not timestamp)
+    const requestId = `${userEmail || 'unknown'}_${Buffer.from(userMsg).toString('base64')}`;
+    
+    // Check for duplicate requests
+    if (!global.processedRequests) {
+      global.processedRequests = new Map();
+    }
+    
+    if (global.processedRequests.has(requestId)) {
+      console.log('Duplicate request detected, ignoring...');
+      const existingResponse = global.processedRequests.get(requestId);
+      // If still processing, wait a bit and return processing status
+      if (existingResponse === 'PROCESSING') {
+        return res.status(202).json({ 
+          message: 'Request is being processed',
+          status: 'processing' 
+        });
+      }
+      return res.status(200).json({ reply: existingResponse });
+    }
+
+    // Mark request as being processed immediately to prevent race conditions
+    global.processedRequests.set(requestId, 'PROCESSING');
+
     const cleanedMsg = userMsg.replace(/[\n\r\t]/g, ' ');
     const kb = knowledgeBase || '';
 
-    // Save query to Firebase before processing
+    const claudeResponse = await callClaudeAPI(cleanedMsg, kb, systemPrompt);
+
+    // Update with actual response
+    global.processedRequests.set(requestId, claudeResponse);
+    
+    // Clean up old requests after 30 minutes (to allow for legitimate re-asks)
+    setTimeout(() => {
+      global.processedRequests.delete(requestId);
+    }, 30 * 60 * 1000);
+
+    // Save conversation to Firebase in role-based format under user_queries
     try {
       const userKey = userEmail ? userEmail.replace(/\./g, "_") : "unknown";
       const dbRef = ref(db, 'user_queries/' + userKey);
       const snapshot = await get(dbRef);
-      const queries = snapshot.exists() ? snapshot.val() : [];
+      const conversation = snapshot.exists() ? snapshot.val() : [];
 
-      queries.push({
-        query: cleanedMsg,
-        timestamp: new Date().toISOString()
+      // Filter out any old format entries (with 'query' field) before adding new ones
+      const cleanConversation = conversation.filter(entry => {
+        // Keep only entries with the new format (role + content)
+        if (entry.role && entry.content) {
+          return true;
+        }
+        // Remove old format entries (with query field)
+        if (entry.query) {
+          return false;
+        }
+        return true;
       });
 
-      await set(dbRef, queries);
-      console.log(`Query saved for user: ${userKey}`);
-    } catch (firebaseError) {
-      console.error('Error saving query to Firebase:', firebaseError);
-      // Continue with Claude API call even if Firebase fails
-    }
+      // Add user message in NEW FORMAT ONLY
+      const userMessage = {
+        role: "user",
+        content: cleanedMsg,
+        timestamp: new Date().toISOString()
+      };
 
-    console.log('Calling Claude API...');
-    const claudeResponse = await callClaudeAPI(cleanedMsg, kb, systemPrompt);
-    console.log('Claude API response received');
+      // Add assistant response in NEW FORMAT ONLY
+      const assistantMessage = {
+        role: "assistant",
+        content: claudeResponse,
+        timestamp: new Date().toISOString()
+      };
+
+      cleanConversation.push(userMessage);
+      cleanConversation.push(assistantMessage);
+      
+      await set(dbRef, cleanConversation);
+    } catch (firebaseError) {
+      console.error('Error saving conversation:', firebaseError);
+    }
 
     res.status(200).json({ reply: claudeResponse });
   } catch (error) {
@@ -625,8 +797,6 @@ app.get('/hubot/show-system', (req, res) => {
 // System endpoint - accepts string input and adds it to system prompt
 app.post('/hubot/system', async (req, res) => {
   try {
-    console.log('System endpoint - Received request body:', req.body);
-
     let systemInput;
 
     // Handle different request body formats
@@ -642,16 +812,12 @@ app.post('/hubot/system', async (req, res) => {
       return res.status(400).json({ error: 'Missing input parameter in request body' });
     }
 
-    console.log('Adding system input to system prompt:', systemInput);
-
     // Add the input to system prompt
     if (systemPrompt) {
       systemPrompt += '\n' + systemInput;
     } else {
       systemPrompt = systemInput;
     }
-
-    console.log('System prompt updated. New length:', systemPrompt.length);
 
     res.status(200).json({
       message: 'System input added to system prompt successfully',
