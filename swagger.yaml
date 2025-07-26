@@ -1,8 +1,7 @@
 openapi: 3.0.0
 info:
   title: Hubot Knowledge Base API
-  description: API for managing knowledge base content through text and file uploads
-  version: 1.0.0
+
   contact:
     name: Hubot API Support
     email: support@hubot.com
@@ -13,23 +12,77 @@ servers:
   - url: http://localhost:8080
     description: Local development server
 
+security:
+  - FirebaseAuth: []
+  - {}  # Some endpoints allow unauthenticated access
+
 paths:
-  /hubot/kb:
-    post:
-      summary: Set knowledge base with string content
-      description: Replace the entire knowledge base with new string content
+  /health:
+    get:
+      summary: Health check
+      description: Check API health and get list of available endpoints
       tags:
-        - Knowledge Base
+        - System
+      security: []
+      responses:
+        '200':
+          description: API is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "OK"
+                  timestamp:
+                    type: string
+                    format: date-time
+                  endpoints:
+                    type: array
+                    items:
+                      type: string
+                    example: ["POST /hubot/message", "GET /get-conversation"]
+
+  /hubot/message:
+    post:
+      summary: Send message to chatbot
+      description: |
+        Send a message to the Handa Uncle financial advisor chatbot. 
+        Authentication is optional - without token, conversations are saved under 'unknown' user.
+        Includes duplicate request prevention and conversation history.
+      tags:
+        - Chat
+      security:
+        - FirebaseAuth: []
+        - {}
       requestBody:
         required: true
         content:
-          text/plain:
+          application/json:
             schema:
-              type: string
-            example: "This is my knowledge base content. It contains important information about our products and services."
+              type: object
+              required:
+                - message
+              properties:
+                message:
+                  type: string
+                  description: User message to send to the chatbot
+                  example: "Hi, I want to invest in stocks but have zero knowledge. Help me."
       responses:
         '200':
-          description: Knowledge base updated successfully
+          description: Message processed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reply:
+                    type: string
+                    description: Chatbot response
+                    example: "Welcome to the Machine. I am Handa Uncle, your personal finance advisor..."
+        '202':
+          description: Request is being processed (duplicate detection)
           content:
             application/json:
               schema:
@@ -37,12 +90,18 @@ paths:
                 properties:
                   message:
                     type: string
-                    example: "Knowledge base updated successfully"
+                    example: "Request is being processed"
                   status:
                     type: string
-                    example: "success"
+                    example: "processing"
         '400':
-          description: Bad request - invalid input
+          description: Missing message parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Invalid or expired token
           content:
             application/json:
               schema:
@@ -50,17 +109,135 @@ paths:
                 properties:
                   error:
                     type: string
-                    example: "Request body must be a string"
+                    example: "Invalid or expired token"
+                  code:
+                    type: string
+                    example: "TOKEN_INVALID"
         '500':
           description: Internal server error
           content:
             application/json:
               schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /hubot/system:
+    post:
+      summary: Add system prompt
+      description: Add input to the system prompt configuration
+      tags:
+        - System
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                input:
+                  type: string
+                  example: "Additional system instructions"
+                message:
+                  type: string
+                  example: "Alternative field name"
+                query:
+                  type: string
+                  example: "Another alternative field name"
+          text/plain:
+            schema:
+              type: string
+              example: "Direct string input"
+      responses:
+        '200':
+          description: System input added successfully
+          content:
+            application/json:
+              schema:
                 type: object
                 properties:
-                  error:
+                  message:
                     type: string
-                    example: "Failed to update knowledge base"
+                    example: "System input added to system prompt successfully"
+                  input:
+                    type: string
+                    example: "Additional system instructions"
+                  systemPromptLength:
+                    type: integer
+                    example: 1500
+                  status:
+                    type: string
+                    example: "success"
+        '400':
+          description: Invalid request body format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /hubot/show-system:
+    get:
+      summary: Get current system prompt
+      description: Retrieve the current system prompt configuration
+      tags:
+        - System
+      security: []
+      responses:
+        '200':
+          description: System prompt retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  systemPrompt:
+                    type: string
+                    example: "Welcome to the Machine. I am Handa Uncle..."
+                  systemPromptLength:
+                    type: integer
+                    example: 1500
+                  status:
+                    type: string
+                    example: "success"
+        '500':
+          description: Failed to retrieve system prompt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /hubot/kb:
+    post:
+      summary: Set knowledge base with string content
+      description: Replace the entire knowledge base with new string content
+      tags:
+        - Knowledge Base
+      security: []
+      requestBody:
+        required: true
+        content:
+          text/plain:
+            schema:
+              type: string
+            example: "This is my knowledge base content. It contains important information about financial planning."
+      responses:
+        '200':
+          description: Knowledge base updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: Bad request - invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /hubot/kb-upload:
     post:
@@ -68,6 +245,7 @@ paths:
       description: Upload a .txt file and replace the entire knowledge base with its content
       tags:
         - Knowledge Base
+      security: []
       requestBody:
         required: true
         content:
@@ -85,34 +263,19 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: "Knowledge base updated from file successfully"
-                  status:
-                    type: string
-                    example: "success"
+                $ref: '#/components/schemas/SuccessResponse'
         '400':
           description: Bad request - no file uploaded or invalid file type
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: "No file uploaded"
+                $ref: '#/components/schemas/ErrorResponse'
         '500':
           description: Internal server error
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: "Failed to process uploaded file"
+                $ref: '#/components/schemas/ErrorResponse'
 
   /hubot/add-kb:
     post:
@@ -120,6 +283,7 @@ paths:
       description: Add new string content to the existing knowledge base as a new line
       tags:
         - Knowledge Base
+      security: []
       requestBody:
         required: true
         content:
@@ -133,34 +297,19 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: "Content added to knowledge base successfully"
-                  status:
-                    type: string
-                    example: "success"
+                $ref: '#/components/schemas/SuccessResponse'
         '400':
           description: Bad request - invalid input
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: "Request body must be a string"
+                $ref: '#/components/schemas/ErrorResponse'
         '500':
           description: Internal server error
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: "Failed to add content to knowledge base"
+                $ref: '#/components/schemas/ErrorResponse'
 
   /hubot/add-kb-upload:
     post:
@@ -168,6 +317,7 @@ paths:
       description: Upload a .txt file and append its content to the existing knowledge base
       tags:
         - Knowledge Base
+      security: []
       requestBody:
         required: true
         content:
@@ -185,34 +335,19 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: "File content added to knowledge base successfully"
-                  status:
-                    type: string
-                    example: "success"
+                $ref: '#/components/schemas/SuccessResponse'
         '400':
           description: Bad request - no file uploaded or invalid file type
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: "No file uploaded"
+                $ref: '#/components/schemas/ErrorResponse'
         '500':
           description: Internal server error
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: "Failed to process uploaded file"
+                $ref: '#/components/schemas/ErrorResponse'
 
   /hubot/show-kb:
     get:
@@ -220,6 +355,7 @@ paths:
       description: Get the current content of the knowledge base
       tags:
         - Knowledge Base
+      security: []
       responses:
         '200':
           description: Knowledge base retrieved successfully
@@ -230,7 +366,7 @@ paths:
                 properties:
                   knowledgeBase:
                     type: string
-                    example: "This is my knowledge base content. It contains important information about our products and services."
+                    example: "This is my knowledge base content..."
                   status:
                     type: string
                     example: "success"
@@ -239,31 +375,189 @@ paths:
           content:
             application/json:
               schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /get-conversation/{email}:
+    get:
+      summary: Get user conversation by email
+      description: |
+        Retrieve conversation history for a specific user by email.
+        Users can only access their own conversations (enforced by token verification).
+      tags:
+        - Conversation
+      security:
+        - FirebaseAuth: []
+      parameters:
+        - name: email
+          in: path
+          required: true
+          description: User email address
+          schema:
+            type: string
+            format: email
+            example: "user@example.com"
+      responses:
+        '200':
+          description: Conversation retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  userKey:
+                    type: string
+                    example: "user@example_com"
+                  conversation:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ConversationMessage'
+                  totalMessages:
+                    type: integer
+                    example: 24
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
                 type: object
                 properties:
                   error:
                     type: string
-                    example: "Failed to retrieve knowledge base"
+                    example: "Invalid or expired token"
+                  code:
+                    type: string
+                    example: "TOKEN_INVALID"
+        '403':
+          description: Access denied - can only access own conversations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Access denied. You can only access your own conversations."
+                  code:
+                    type: string
+                    example: "ACCESS_DENIED"
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
-  /hubot/message:
-    post:
-      summary: Send message to Hubot
-      description: Send a message to the Hubot and receive a response
+  /get-conversation:
+    get:
+      summary: Get unknown user conversation
+      description: Retrieve conversation history for unauthenticated users (stored under 'unknown')
       tags:
-        - Chat
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                message:
-                  type: string
-                  example: "Hello, how can you help me?"
+        - Conversation
+      security: []
       responses:
         '200':
-          description: Message received successfully
+          description: Conversation retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  userKey:
+                    type: string
+                    example: "unknown"
+                  conversation:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ConversationMessage'
+                  totalMessages:
+                    type: integer
+                    example: 12
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /get-all-users:
+    get:
+      summary: Get all users and conversation counts
+      description: |
+        Administrative endpoint to get summary of all users and their conversation statistics.
+        Requires valid authentication.
+      tags:
+        - Admin
+      security:
+        - FirebaseAuth: []
+      responses:
+        '200':
+          description: User data retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users:
+                    type: object
+                    additionalProperties:
+                      type: object
+                      properties:
+                        messageCount:
+                          type: integer
+                          description: Total messages (user + assistant)
+                        userMessageCount:
+                          type: integer
+                          description: Messages sent by user only
+                        lastMessage:
+                          type: string
+                          format: date-time
+                          description: Timestamp of last message
+                    example:
+                      "user@example_com":
+                        messageCount: 24
+                        userMessageCount: 12
+                        lastMessage: "2025-01-26T08:07:29.066Z"
+                      "unknown":
+                        messageCount: 8
+                        userMessageCount: 4
+                        lastMessage: "2025-01-26T08:04:55.352Z"
+                  totalUsers:
+                    type: integer
+                    example: 2
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Authentication required to access user data."
+                  code:
+                    type: string
+                    example: "AUTH_REQUIRED"
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /admin/cleanup-database:
+    post:
+      summary: Clean up old format database entries
+      description: |
+        Administrative endpoint to remove old format conversation entries (with 'query' field)
+        and keep only new format entries (with 'role' and 'content' fields).
+        Requires valid authentication.
+      tags:
+        - Admin
+      security:
+        - FirebaseAuth: []
+      responses:
+        '200':
+          description: Database cleanup completed successfully
           content:
             application/json:
               schema:
@@ -271,78 +565,178 @@ paths:
                 properties:
                   message:
                     type: string
-                    example: "Handa Uncle Bot has received your query - We will be live soon"
+                    example: "Database cleanup completed successfully"
+                  status:
+                    type: string
+                    example: "success"
+                  totalUsers:
+                    type: integer
+                    example: 5
+                  totalEntriesCleaned:
+                    type: integer
+                    example: 23
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Authentication required for database cleanup."
+                  code:
+                    type: string
+                    example: "AUTH_REQUIRED"
+        '500':
+          description: Database cleanup failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # Legacy endpoints (deprecated)
+  /save-query:
+    post:
+      summary: "[DEPRECATED] Legacy save query endpoint"
+      description: "This endpoint has been deprecated. Use POST /hubot/message instead."
+      tags:
+        - Legacy (Deprecated)
+      deprecated: true
+      security: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '410':
+          description: Endpoint deprecated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "This endpoint has been deprecated. Please use POST /hubot/message instead."
+                  newEndpoint:
+                    type: string
+                    example: "/hubot/message"
+                  code:
+                    type: string
+                    example: "ENDPOINT_DEPRECATED"
+
+  /get-queries:
+    get:
+      summary: "[DEPRECATED] Legacy get queries endpoint"
+      description: "This endpoint has been deprecated. Use GET /get-conversation instead."
+      tags:
+        - Legacy (Deprecated)
+      deprecated: true
+      security: []
+      responses:
+        '410':
+          description: Endpoint deprecated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "This endpoint has been deprecated. Please use GET /get-conversation instead."
+                  newEndpoint:
+                    type: string
+                    example: "/get-conversation"
+                  code:
+                    type: string
+                    example: "ENDPOINT_DEPRECATED"
+
+  /get-queries/{email}:
+    get:
+      summary: "[DEPRECATED] Legacy get queries by email endpoint"
+      description: "This endpoint has been deprecated. Use GET /get-conversation/{email} instead."
+      tags:
+        - Legacy (Deprecated)
+      deprecated: true
+      security: []
+      parameters:
+        - name: email
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '410':
+          description: Endpoint deprecated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "This endpoint has been deprecated. Please use GET /get-conversation/{email} instead."
+                  newEndpoint:
+                    type: string
+                    example: "/get-conversation/{email}"
+                  code:
+                    type: string
+                    example: "ENDPOINT_DEPRECATED"
 
 components:
+  securitySchemes:
+    FirebaseAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Firebase ID Token - Include as `Bearer <firebase-id-token>`
+
   schemas:
     SuccessResponse:
       type: object
       properties:
         message:
           type: string
+          example: "Operation completed successfully"
         status:
           type: string
           enum: [success]
+          example: "success"
     
     ErrorResponse:
       type: object
       properties:
         error:
           type: string
+          example: "An error occurred"
 
-    KnowledgeBaseResponse:
+    ConversationMessage:
       type: object
       properties:
-        knowledgeBase:
+        role:
           type: string
-        status:
+          enum: [user, assistant]
+          example: "user"
+        content:
           type: string
-          enum: [success]
+          example: "Hello, I need help with investing"
+        timestamp:
+          type: string
+          format: date-time
+          example: "2025-01-26T08:04:55.352Z"
 
 tags:
+  - name: System
+    description: System health and configuration operations
+  - name: Chat
+    description: Chatbot conversation operations
   - name: Knowledge Base
     description: Operations for managing the knowledge base content
-  - name: Chat
-    description: Chat operations with Hubot
-
-# Postman Testing Instructions:
-# 
-# 1. /Hubot/kb (POST):
-#    - URL: http://localhost:8080/Hubot/kb
-#    - Method: POST
-#    - Headers: Content-Type: text/plain
-#    - Body: Select "raw" and choose "Text" from dropdown
-#    - Enter your text directly: "This is my knowledge base content"
-#
-# 2. /Hubot/kb-upload (POST):
-#    - URL: http://localhost:8080/Hubot/kb-upload
-#    - Method: POST
-#    - Body: Select "form-data"
-#    - Key: "file" (select "File" from dropdown)
-#    - Value: Select your .txt file
-#
-# 3. /Hubot/add-kb (POST):
-#    - URL: http://localhost:8080/Hubot/add-kb
-#    - Method: POST
-#    - Headers: Content-Type: text/plain
-#    - Body: Select "raw" and choose "Text" from dropdown
-#    - Enter your text: "Additional content to append"
-#
-# 4. /Hubot/add-kb-upload (POST):
-#    - URL: http://localhost:8080/Hubot/add-kb-upload
-#    - Method: POST
-#    - Body: Select "form-data"
-#    - Key: "file" (select "File" from dropdown)
-#    - Value: Select your .txt file
-#
-# 5. /Hubot/show-kb (GET):
-#    - URL: http://localhost:8080/Hubot/show-kb
-#    - Method: GET
-#    - No body required
-#
-# 6. /Hubot/message (POST):
-#    - URL: http://localhost:8080/Hubot/message
-#    - Method: POST
-#    - Headers: Content-Type: application/json
-#    - Body: Select "raw" and choose "JSON" from dropdown
-#    - Enter JSON: {"message": "Hello Hubot"}
+  - name: Conversation
+    description: User conversation history operations
+  - name: Admin
+    description: Administrative operations (requires authentication)
+  - name: Legacy (Deprecated)
+    description: Deprecated endpoints - use new alternatives instead
